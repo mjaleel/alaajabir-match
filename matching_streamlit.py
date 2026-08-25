@@ -90,8 +90,8 @@ def build_output_workbooks(rows, target_col_label, extra_col_names=None, extra_c
     counts = summarize(rows)
     total = len(rows)
 
-    order_index = {c: i for i, c in enumerate(CATEGORY_ORDER)}
-    ordered = sorted(range(len(rows)), key=lambda i: (order_index.get(rows[i].category, 99), i))
+    # نحافظ على ترتيب الأسماء تمامًا كما وردت بالملف الأصلي (بدون إعادة فرز حسب الفئة)
+    ordered = list(range(len(rows)))
 
     # ------------------------------------------------------------------
     # الملف الرئيسي
@@ -219,8 +219,8 @@ def build_dual_output_workbooks(rows, target_col_label, label1, label2):
         'not_found': "غير موجود بالقاعدتين",
     }
 
-    order_index = {k: i for i, k in enumerate(DUAL_KIND_ORDER)}
-    ordered = sorted(range(len(rows)), key=lambda i: (order_index.get(rows[i].status_kind, 99), i))
+    # نحافظ على ترتيب الأسماء تمامًا كما وردت بالملف الأصلي (بدون إعادة فرز حسب الحالة)
+    ordered = list(range(len(rows)))
 
     # ------------------------------------------------------------------
     # الملف الرئيسي
