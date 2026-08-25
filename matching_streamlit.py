@@ -198,11 +198,18 @@ def build_output_workbooks(rows, target_col_label, extra_col_names=None, extra_c
     return wb, wb2
 
 
-def build_dual_output_workbooks(rows, target_col_label, label1, label2):
-    """يبني ملفي (النتيجة، الملخص) لمقارنة قاعدتين مرجعيتين معًا ويرجع كائني Workbook."""
+def build_dual_output_workbooks(rows, target_col_label, label1, label2,
+                                 extra_col_names=None, extra_col_values=None):
+    """يبني ملفي (النتيجة، الملخص) لمقارنة قاعدتين مرجعيتين معًا ويرجع كائني Workbook.
+
+    extra_col_names / extra_col_values: أعمدة إضافية اختيارية تُدرج بعد عمود اسم
+    الهدف مباشرة (تُستخدم لإظهار عمود/أعمدة المدرسة المختارة مثلاً)."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+
+    extra_col_names = extra_col_names or []
+    extra_col_values = extra_col_values or [{} for _ in rows]
 
     header_fill = PatternFill('solid', fgColor='2F5496')
     header_font = Font(name=FONT_NAME, bold=True, color='FFFFFF', size=11)
@@ -230,7 +237,8 @@ def build_dual_output_workbooks(rows, target_col_label, label1, label2):
     ws.title = "مقارنة القاعدتين"
     ws.sheet_view.rightToLeft = True
 
-    cols = ['ت', target_col_label, f'مطابق {label1}', f'فئة {label1}', f'نسبة % {label1}',
+    cols = ['ت', target_col_label, *extra_col_names,
+            f'مطابق {label1}', f'فئة {label1}', f'نسبة % {label1}',
             f'مطابق {label2}', f'فئة {label2}', f'نسبة % {label2}', 'الحالة المدمجة', 'التفسير']
     n_cols = len(cols)
     last_col_letter = get_column_letter(n_cols)
@@ -257,7 +265,8 @@ def build_dual_output_workbooks(rows, target_col_label, label1, label2):
     for i in ordered:
         row = rows[i]
         fill_color = DUAL_KIND_COLOR.get(row.status_kind)
-        vals = [row.idx + 1, row.original_name,
+        extra_vals = [extra_col_values[i].get(c, '') for c in extra_col_names]
+        vals = [row.idx + 1, row.original_name, *extra_vals,
                 row.row1.match_text, row.row1.category, row.row1.score,
                 row.row2.match_text, row.row2.category, row.row2.score,
                 row.status_label, row.note]
@@ -270,7 +279,7 @@ def build_dual_output_workbooks(rows, target_col_label, label1, label2):
                 cell.fill = PatternFill('solid', fgColor=fill_color)
         r += 1
 
-    widths = [7, 30, 28, 16, 12, 28, 16, 12, 22, 45]
+    widths = [7, 30, *([22] * len(extra_col_names)), 28, 16, 12, 28, 16, 12, 22, 45]
     for j, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(j)].width = w
     ws.freeze_panes = f'A{header_row+1}'
@@ -598,9 +607,37 @@ def main():
                     progress_cb=progress_cb, target_school=target_school,
                     ref1_school=ref1_school, ref2_school=ref2_school)
 
+                progress_bar.progress(90, text="جارٍ تجهيز الأعمدة الإضافية...")
+
+                TARGET_SCHOOL_LABEL = "المدرسة (ملف الهدف)"
+                ref1_school_label = f"مدرسة {ref_box['label']}"
+                ref2_school_label = f"مدرسة {ref2_box['label']}"
+
+                dual_extra_col_names = []
+                if target_box["school_col"] and target_school is not None:
+                    dual_extra_col_names.append(TARGET_SCHOOL_LABEL)
+                if ref_box["school_col"] and ref1_school is not None:
+                    dual_extra_col_names.append(ref1_school_label)
+                if ref2_box["school_col"] and ref2_school is not None:
+                    dual_extra_col_names.append(ref2_school_label)
+
+                dual_extra_col_values = []
+                for i, row in enumerate(rows):
+                    vals = {}
+                    if target_box["school_col"] and target_school is not None:
+                        vals[TARGET_SCHOOL_LABEL] = target_school[i] if i < len(target_school) else ''
+                    if ref_box["school_col"] and ref1_school is not None:
+                        vals[ref1_school_label] = " | ".join(
+                            ref1_school[ri] for ri in row.row1.ref_indices if 0 <= ri < len(ref1_school))
+                    if ref2_box["school_col"] and ref2_school is not None:
+                        vals[ref2_school_label] = " | ".join(
+                            ref2_school[ri] for ri in row.row2.ref_indices if 0 <= ri < len(ref2_school))
+                    dual_extra_col_values.append(vals)
+
                 progress_bar.progress(95, text="جارٍ بناء ملفات الإكسل...")
                 wb, wb2 = build_dual_output_workbooks(
-                    rows, target_box["col"], ref_box["label"], ref2_box["label"])
+                    rows, target_box["col"], ref_box["label"], ref2_box["label"],
+                    extra_col_names=dual_extra_col_names, extra_col_values=dual_extra_col_values)
                 counts = summarize_dual(rows)
                 base_name = target_box["filename"].rsplit('.', 1)[0]
 
@@ -629,18 +666,33 @@ def main():
                     target_school=target_school, ref_school=ref_school)
 
                 progress_bar.progress(90, text="جارٍ تجهيز الأعمدة الإضافية...")
+
+                TARGET_SCHOOL_LABEL = "المدرسة (ملف الهدف)"
+                REF_SCHOOL_LABEL = "المدرسة (القاعدة المرجعية)"
+
+                output_extra_cols = list(ref_box["extra_cols"])
+                if target_box["school_col"] and target_school is not None:
+                    output_extra_cols.append(TARGET_SCHOOL_LABEL)
+                if ref_box["school_col"] and ref_school is not None:
+                    output_extra_cols.append(REF_SCHOOL_LABEL)
+
                 extra_col_values = []
-                for row in rows:
+                for i, row in enumerate(rows):
                     vals = {}
                     for c in ref_box["extra_cols"]:
                         col_data = ref_extra_data.get(c, [])
                         vals[c] = " | ".join(
                             col_data[ri] for ri in row.ref_indices if 0 <= ri < len(col_data))
+                    if target_box["school_col"] and target_school is not None:
+                        vals[TARGET_SCHOOL_LABEL] = target_school[i] if i < len(target_school) else ''
+                    if ref_box["school_col"] and ref_school is not None:
+                        vals[REF_SCHOOL_LABEL] = " | ".join(
+                            ref_school[ri] for ri in row.ref_indices if 0 <= ri < len(ref_school))
                     extra_col_values.append(vals)
 
                 progress_bar.progress(95, text="جارٍ بناء ملفات الإكسل...")
                 wb, wb2 = build_output_workbooks(
-                    rows, target_box["col"], extra_col_names=ref_box["extra_cols"],
+                    rows, target_box["col"], extra_col_names=output_extra_cols,
                     extra_col_values=extra_col_values)
                 counts = summarize(rows)
                 base_name = target_box["filename"].rsplit('.', 1)[0]
